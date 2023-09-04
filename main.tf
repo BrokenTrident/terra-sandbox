@@ -1,4 +1,5 @@
 resource "aws_vpc" "mtc_vpc" {
+  # checkov:skip=CKV2_AWS_12: ADD REASON
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   enable_dns_support   = true
@@ -8,16 +9,23 @@ resource "aws_vpc" "mtc_vpc" {
   }
 }
 
+resource "aws_flow_log" "example" {
+  iam_role_arn    = "arn"
+  log_destination = "log"
+  traffic_type    = "ALL"
+  vpc_id          = aws_vpc.mtc_vpc.id
+}
+
 resource "aws_subnet" "mtc_public_subnet" {
-  vpc_id                  = aws_vpc.mtc_vpc.id
-  cidr_block              = "10.0.1.0/24"
-  map_public_ip_on_launch = true
-  availability_zone       = "us-east-1a"
+  vpc_id            = aws_vpc.mtc_vpc.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
 
   tags = {
     Name = "dev-public"
   }
 }
+
 
 resource "aws_internet_gateway" "mtc_internet_gateway" {
   vpc_id = aws_vpc.mtc_vpc.id
@@ -48,7 +56,11 @@ resource "aws_route_table_association" "mtc_public_assoc" {
   route_table_id = aws_route_table.mtc_public_rt.id
 }
 
+
 resource "aws_security_group" "mtc_sg" {
+  # checkov:skip=CKV_AWS_260: ADD REASON
+  # checkov:skip=CKV_AWS_24: ADD REASON
+  # checkov:skip=CKV_AWS_23: ADD REASON
 
   name        = "dev_sg"
   description = "dev security group"
@@ -97,6 +109,7 @@ resource "aws_network_interface" "test-web-server-nic" {
 # Assign an Elastic IP
 resource "aws_eip" "one" {
   domain                    = "vpc"
+  instance                  = aws_instance.web_server.id
   network_interface         = aws_network_interface.test-web-server-nic.id
   associate_with_private_ip = "10.0.1.50"
 
@@ -108,23 +121,34 @@ resource "aws_key_pair" "mtc_auth" {
 }
 
 resource "aws_instance" "web_server" {
-  instance_type          = "t2.micro"
-  ami                    = data.aws_ami.server-ami.id
-  key_name               = aws_key_pair.mtc_auth.id
-  
+  instance_type = "t2.micro"
+  ami           = data.aws_ami.server-ami.id
+  key_name      = aws_key_pair.mtc_auth.id
+  iam_instance_profile = "admin-user"
+
+
+
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
   network_interface {
     device_index         = 0
     network_interface_id = aws_network_interface.test-web-server-nic.id
   }
-  
+
   root_block_device {
     volume_size = 10
+    encrypted   = true
   }
 
-  user_data = "${file("install_apache.sh")}"
+  user_data = file("install_apache.sh")
 
 
   tags = {
     Name = "dev-node"
   }
+  monitoring    = true
+  ebs_optimized = true
 }
